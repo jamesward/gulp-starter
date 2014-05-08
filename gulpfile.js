@@ -121,12 +121,12 @@ gulp.task("compile", ["copy-bower", "compile:html", "compile:less", "compile:jav
 
 
 // Dist everything
-gulp.task("dist", ["dist:html", "dist:less", "dist:javascript", "dist:images"]);
+gulp.task("dist", ["copy-bower", "dist:html", "dist:less", "dist:javascript", "dist:images"]);
 
 
 // Clean the DIST dir
 gulp.task("clean", function() {
-  return gulp.src(DIST, {read: false})
+  return gulp.src([DIST, ".build"], {read: false})
     .pipe(require("gulp-clean")());
 });
 
