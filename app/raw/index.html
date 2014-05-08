@@ -1,0 +1,25 @@
+<!doctype html>
+<html ng-app="myApp">
+<head>
+    <title>Hello, World</title>
+    <link rel='stylesheet' href="lib/bootstrap/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/main.css">
+    <script src="lib/angular/angular.min.js"></script>
+    <script src="lib/angular-bootstrap/ui-bootstrap-tpls.min.js"></script>
+    <script src="js/index.js"></script>
+</head>
+<body>
+    <nav class="navbar navbar-default navbar-static-top" role="navigation">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">Hello, World</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div ng-controller="Hello">
+            <label>Name:</label>
+            <input type="text" ng-model="yourName" placeholder="Enter a name here">
+            <h1>{{msg}}</h1>
+        </div>
+    </div>
+</body>
+</html>

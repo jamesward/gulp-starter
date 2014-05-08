@@ -1,8 +1,9 @@
 var gulp = require("gulp"),
-  gutil = require('gulp-util'),
   path = require("path"),
   bower = require("bower"),
   connect = require("connect"),
+  gulpIgnore = require("gulp-ignore"),
+  gutil = require("gulp-util"),
   autoprefixer = require("gulp-autoprefixer"),
   less = require("gulp-less"),
   livereload = require("gulp-livereload"),
@@ -12,7 +13,7 @@ var gulp = require("gulp"),
   rename = require("gulp-rename"),
   clean = require("gulp-clean"),
   concat = require("gulp-concat"),
-  changed = require("gulp-changed"),
+  newer = require("gulp-newer"),
   pkg = require("./package.json");
 
 var SRC  = "app";
@@ -22,17 +23,19 @@ var SRC_JAVASCRIPT_BASE  = SRC + "/js";
 var SRC_IMAGES_BASE  = SRC + "/img";
 
 var SRC_ALL  = SRC + "/**";
+var SRC_RAW  = SRC + "/raw/**";
 var SRC_LESS_ALL  = SRC_LESS_BASE + "/**/*.less";
 var SRC_JAVASCRIPT_ALL  = SRC_JAVASCRIPT_BASE + "/**/*.js";
 var SRC_IMAGES_ALL  = SRC_IMAGES_BASE + "/**/*";
 
 var DIST = "dist";
+var DIST_LIB = DIST + "/lib";
 var DIST_ALL = DIST + "/**";
 var DIST_LESS = DIST + "/css";
 var DIST_JAVASCRIPT = DIST + "/js";
 var DIST_IMAGES = DIST + "/img";
 
-var MAIN_SCRIPT = SRC_JAVASCRIPT_BASE + "/main.js";
+var MAIN_SCRIPT = "index.js";
 
 
 
@@ -40,9 +43,7 @@ var MAIN_SCRIPT = SRC_JAVASCRIPT_BASE + "/main.js";
 
 gulp.task("compile:less", ["update"], function() {
   return gulp.src(SRC_LESS_ALL)
-    .pipe(less({
-      paths: [ path.join(__dirname, "less", "includes") ]
-    }))
+    .pipe(less({ paths: [ path.join(SRC_LESS_BASE, "includes") ] }))
     .pipe(autoprefixer("last 2 version", "safari 5", "ie 8", "ie 9", "opera 12.1", "ios 6", "android 4"))
     .pipe(gulp.dest(DIST_LESS));
 });
@@ -60,7 +61,7 @@ gulp.task("dist:less", ["compile:less"], function() {
 gulp.task("compile:javascript", ["update"], function() {
   return gulp.src(SRC_JAVASCRIPT_ALL)
     .pipe(jshint())
-    .pipe(jshint.reporter("default"))
+    .pipe(jshint.reporter("jshint-stylish"))
     .pipe(concat(MAIN_SCRIPT))
     .pipe(gulp.dest(DIST_JAVASCRIPT));
 });
@@ -87,18 +88,26 @@ gulp.task("dist:images", function() {
 });
 
 
-// Compile everything
-gulp.task("compile", function() {
-  return gulp.src(SRC_ALL)
-    .pipe(gulp.dest(DIST))
-    .pipe(gulp.start(["compile:less", "compile:javascript", "compile:images"]));
+// Copy the raw assets
+gulp.task("copy-raw", ["update"], function() {
+  return gulp.src(SRC_RAW)
+    .pipe(gulp.dest(DIST));
 });
+
+
+// Copy
+gulp.task("copy-bower", ["update"], function() {
+  return gulp.src("bower_components/**")
+    .pipe(gulp.dest(DIST_LIB));
+});
+
+
+// Compile everything
+gulp.task("compile", ["copy-bower", "copy-raw", "compile:less", "compile:javascript", "compile:images"]);
 
 
 // Dist everything
-gulp.task("dist", ["dist:less", "dist:javascript", "dist:images"], function() {
-  //gutil.log("Dist complete")
-});
+gulp.task("dist", ["dist:less", "dist:javascript", "dist:images"]);
 
 
 // Clean the DIST dir
@@ -108,30 +117,43 @@ gulp.task("clean", function() {
 });
 
 
-gulp.task("update:bower", function(next) {
-  gutil.log("test");
-  bower.commands.install([], {}, { interactive: false })
-    .on("end", function (installed) {
-      gutil.log("Bower Dependencies Updated");
-      next();
-    })
-    .on("log", function (log) {
-      if (log.level == "action" && log.id == "install") {
-        gutil.log("Added Bower Dependency: " + log.message);
+// Updates the Bower dependencies based on the bower.json file
+gulp.task("update", function(next) {
+
+  var needsUpdate = false;
+
+  gulp.src("bower.json")
+    .pipe(newer(".build"))
+    .pipe(gulp.dest(".build")) // todo: don't do this if the bower install fails
+    .on("close", function() {
+      if (!needsUpdate) {
+        next();
       }
     })
-    .on("error", function (error) {
-      gutil.error("Bower Error:", error);
-      next(error);
-    });
-});
-
-// Updates the Bower dependencies based on the bower.json file
-gulp.task("update", function() {
-  return gulp.src("bower.json")
-    .pipe(changed("."))
-    .pipe(gulp.start("update:bower"))
-    .pipe(gulp.dest("."))
+    .on("error", function(error) {
+      if (!needsUpdate) {
+        next(error);
+      }
+    })
+    .on("data", function() {
+      // updated bower.json
+      needsUpdate = true;
+      gutil.log("Updating Bower Dependencies");
+      bower.commands.install([], {}, { interactive: false })
+        .on("end", function (installed) {
+          gutil.log("Bower Dependencies Updated");
+          next();
+        })
+        .on("log", function (log) {
+          if (log.level == "action" && log.id == "install") {
+            gutil.log("Added Bower Dependency: " + log.message);
+          }
+        })
+        .on("error", function (error) {
+          gutil.error("Bower Error:", error);
+          //next(error);
+        });
+    })
 });
 
 
@@ -147,7 +169,8 @@ gulp.task("server", ["compile"], function(next) {
 // Auto-Reloading Development Server
 gulp.task("dev", ["server"], function() {
 
-  gulp.watch(SRC, ["compile"]);
+  gulp.watch(SRC_ALL, ["compile"]);
+  gulp.watch("bower.json", ["copy-bower"]);
 
   var lrserver = livereload();
 
