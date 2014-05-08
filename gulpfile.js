@@ -56,7 +56,7 @@ function compileJavaScript() {
   var jshint = require("gulp-jshint");
   return gulp.src(SRC_JAVASCRIPT_ALL)
     .pipe(jshint())
-    .pipe(jshint.reporter("jshint-stylish"))
+    .pipe(jshint.reporter(require('jshint-stylish')))
     .pipe(require("gulp-concat")(MAIN_SCRIPT))
     .pipe(gulp.dest(DIST_JAVASCRIPT));
 }

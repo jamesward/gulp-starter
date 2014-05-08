@@ -22,6 +22,7 @@
     "gulp-rename": "^1.2.0",
     "gulp-replace": "^0.3.0",
     "gulp-uglify": "^0.2.1",
-    "gulp-util": "^2.2.14"
+    "gulp-util": "^2.2.14",
+    "jshint-stylish": "^0.2.0"
   }
 }

@@ -21,4 +21,13 @@ package.json  ->  The NPM build definition
 ```
 
 ## Setup
+
+1. Git clone this repo
+2. [Install Node.js / npm](http://nodejs.org/download/)
+3. Fetch the dependencies with npm:
+
+        npm update
+
+4.
+
 ```
