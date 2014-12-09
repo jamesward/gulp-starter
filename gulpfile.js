@@ -139,6 +139,11 @@ gulp.task("update", function(next) {
   gulp.src("bower.json")
     .pipe(require("gulp-newer")(".build"))
     .pipe(gulp.dest(".build")) // todo: don't do this if the bower install fails
+    .on("end", function() {
+      if (!needsUpdate) {
+        next();
+      }
+    })
     .on("close", function() {
       if (!needsUpdate) {
         next();
@@ -164,10 +169,11 @@ gulp.task("update", function(next) {
           }
         })
         .on("error", function (error) {
-          gutil.error("Bower Error:", error);
+          gutil.error("Bower Error: ", error);
           next(error);
         });
-    })
+    });
+
 });
 
 
