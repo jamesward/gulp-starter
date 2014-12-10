@@ -1,0 +1,346 @@
+#!/bin/bash
+#
+# A Gulp Launcher for *nix and Cygwin
+#
+
+readonly JQ_VERSION=1.3
+readonly DEFAULT_NODE_VERSION=0.10.33
+readonly DEFAULT_NPM_VERSION=1.4.12
+readonly DEFAULT_GULP_VERSION=3.8.10
+readonly BASE_LOCAL_DIR=$HOME/.gulp-launcher
+
+
+readonly OS_LINUX="LINUX"
+readonly OS_MAC="MAC"
+readonly OS_CYGWIN="CYGWIN"
+
+readonly ARCH_32="i686"
+readonly ARCH_64="x86_64"
+
+# Gets the system os and architecture
+#
+# Sets:
+#  OS
+#  ARCH
+#  
+function get_system_info() {
+  if [ "$OS" != "$OS_LINUX" ] && [ "$OS" != "$OS_MAC" ] && [ "$OS" != "$OS_CYGWIN" ]; then
+
+    readonly ARCH=$(uname -m)
+
+    if [ "$ARCH" != "$ARCH_32" ] && [ "$ARCH" != "$ARCH_64" ]; then
+      echo "Did not recognize system architecture: $ARCH"
+      exit 1
+    fi
+
+    if [ "$(uname)" == "Darwin" ]; then
+      readonly OS=$OS_MAC
+    elif [ "$(uname -s)" == "CYGWIN_NT-5.1" ] || [ "$(uname -s)" == "CYGWIN_NT-6.1" ] || [ "$(uname -s)" == "CYGWIN_NT-6.1-WOW64" ] || [ "$(uname -s)" == "MINGW32_NT-6.2" ]; then
+      readonly OS=$OS_CYGWIN
+    elif [ "$(uname -o)" == "Cygwin" ]; then
+      readonly OS=$OS_CYGWIN
+    elif [ "$(uname -o)" == "GNU/Linux" ]; then
+      readonly OS=$OS_LINUX
+    else
+      echo "Did not recognize OS: $(uname)"
+      exit 1
+    fi
+  fi
+}
+
+# Run jq (json query tool) (downloading it if needed)
+#
+# Requires:
+#  BASE_LOCAL_DIR
+#  JQ_VERSION
+#  OS
+#  OS_LINUX
+#  OS_MAC
+#  OS_CYGWIN
+#  ARCH
+#  ARCH_32
+#  ARCH_64
+#
+# Sets:
+#  JQ_BIN 
+#
+function download_jq() { 
+
+  get_system_info
+
+  if [ "$JQ_BIN" == "" ]; then
+    readonly JQ_BIN=$BASE_LOCAL_DIR/tools/jq-$JQ_VERSION
+
+    if [ ! -e $JQ_BIN ]; then
+      $(mkdir -p $BASE_LOCAL_DIR/tools)
+    
+      local JQ_HOST="stedolan.github.io"
+
+      if [ "$OS" == "$OS_LINUX" ] && [ "$ARCH" == "$ARCH_32" ]; then
+        local JQ_PATH="/jq/download/linux32/jq-$JQ_VERSION/jq"
+      elif [ "$OS" == "$OS_LINUX" ] && [ "$ARCH" == "$ARCH_64" ]; then
+        local JQ_PATH="/jq/download/linux64/jq-$JQ_VERSION/jq"
+      elif [ "$OS" == "$OS_MAC" ] && [ "$ARCH" == "$ARCH_32" ]; then
+        local JQ_PATH="/jq/download/osx32/jq-$JQ_VERSION/jq"
+      elif [ "$OS" == "$OS_MAC" ] && [ "$ARCH" == "$ARCH_64" ]; then
+        local JQ_PATH="/jq/download/osx64/jq-$JQ_VERSION/jq"
+      elif [ "$OS" == "$OS_CYGWIN" ] && [ "$ARCH" == "$ARCH_32" ]; then
+        local JQ_PATH="/jq/download/win32/jq-$JQ_VERSION/jq-$JQ_VERSION.exe"
+      elif [ "$OS" == "$OS_CYGWIN" ] && [ "$ARCH" == "$ARCH_64" ]; then
+        local JQ_PATH="/jq/download/win64/jq-$JQ_VERSION/jq-$JQ_VERSION.exe"
+      fi
+
+      echo "Downloading jq $JQ_VERSION for $ARCH $OS"
+
+      $(curl -s -o $JQ_BIN https://$JQ_HOST$JQ_PATH)
+
+      $(chmod +x $JQ_BIN)
+    fi
+  fi
+
+}
+
+
+# Parse the package.json to figure out the raw node version
+#
+# Requires:
+#  JQ_BIN
+#
+# Sets:
+#  NODE_RAW_VERSION
+#
+function get_raw_node_version() {
+  
+  if [ "$NODE_RAW_VERSION" == "" ]; then
+    download_jq
+
+    readonly NODE_RAW_VERSION=$($JQ_BIN -r '.engines.node' package.json)
+  fi
+
+}
+
+
+# Gets the Node version number
+#
+# Requires:
+#  NODE_RAW_VERSION
+#
+# Sets:
+#  NODE_VERSION
+#
+function get_node_version() {
+
+  if [ "$NODE_VERSION" == "" ]; then
+    get_raw_node_version
+
+    if [ "$NODE_RAW_VERSION" == "null" ]; then
+      echo "The Node version was not specified."
+      read -t 10 -p "Should the latest be used? [yes] " USE_LATEST
+      if [ "$USE_LATEST" == "yes" ] || [ "$USE_LATEST" == "" ]; then
+        readonly NODE_VERSION=$(curl -s https://semver.io/node/stable)
+      fi
+    else
+      # does the raw version need to be resolved because it contains: ^ x ~ < >
+      if [ "${NODE_RAW_VERSION#*x}" != "$NODE_RAW_VERSION" ] ||
+         [ "${NODE_RAW_VERSION#*~}" != "$NODE_RAW_VERSION" ] ||
+         [ "${NODE_RAW_VERSION#*>}" != "$NODE_RAW_VERSION" ] ||
+         [ "${NODE_RAW_VERSION#*<}" != "$NODE_RAW_VERSION" ] ||
+         [ "${NODE_RAW_VERSION#*^}" != "$NODE_RAW_VERSION" ]; then
+
+        readonly NODE_VERSION=$(curl -m 10 -s https://semver.io/node/resolve/$NODE_RAW_VERSION)
+      else
+       readonly NODE_VERSION=$NODE_RAW_VERSION
+      fi
+    fi
+
+    if [ -z $NODE_VERSION ]; then
+      echo "Exiting because the Node version could not be determined."
+      echo "Set a specific node version in the package.json file."
+      exit 1
+    fi
+  fi
+}
+
+
+# Downloads Node
+#
+# Requires:
+#  NODE_VERSION
+#  OS
+#  OS_LINUX
+#  OS_MAC
+#  OS_CYGWIN
+#  ARCH
+#  ARCH_32
+#  ARCH_64
+#
+# Sets:
+#  NODE_BIN
+#  NPM_BIN
+#
+function download_node() {
+
+  if [ "$NODE_BIN" == "" ]; then
+
+    get_system_info
+
+    get_node_version
+
+    # download Node binary
+    local NODE_DIR=$BASE_LOCAL_DIR/tools/node-$NODE_VERSION
+
+    if [ $OS == $OS_LINUX ] && [ $ARCH == $ARCH_32 ]; then
+      local NODE_DOWNLOAD_PATH="/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x86.tar.gz"
+      readonly NODE_BIN=$NODE_DIR/node-v${NODE_VERSION}-linux-x86/bin/node
+      readonly NPM_BIN=$NODE_DIR/node-v${NODE_VERSION}-linux-x86/bin/npm
+    elif [ $OS == $OS_LINUX ] && [ $ARCH == $ARCH_64 ]; then
+      local NODE_DOWNLOAD_PATH="/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz"
+      readonly NODE_BIN=$NODE_DIR/node-v${NODE_VERSION}-linux-x64/bin/node
+      readonly NPM_BIN=$NODE_DIR/node-v${NODE_VERSION}-linux-x64/bin/npm
+    elif [ $OS == $OS_MAC ] && [ $ARCH == $ARCH_32 ]; then
+      local NODE_DOWNLOAD_PATH="/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-x86.tar.gz"
+      readonly NODE_BIN=$NODE_DIR/node-v${NODE_VERSION}-darwin-x86/bin/node
+      readonly NPM_BIN=$NODE_DIR/node-v${NODE_VERSION}-darwin-x86/bin/npm
+    elif [ $OS == $OS_MAC ] && [ $ARCH == $ARCH_64 ]; then
+      local NODE_DOWNLOAD_PATH="/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-x64.tar.gz"
+      readonly NODE_BIN=$NODE_DIR/node-v${NODE_VERSION}-darwin-x64/bin/node
+      readonly NPM_BIN=$NODE_DIR/node-v${NODE_VERSION}-darwin-x64/bin/npm
+    elif [ $OS == $OS_CYGWIN ] && [ $ARCH == $ARCH_32 ]; then
+      local NODE_DOWNLOAD_PATH="/dist/v${NODE_VERSION}/node.exe"
+      readonly NODE_BIN=$NODE_DIR/node.exe
+      readonly NPM_BIN="$NODE_BIN $NODE_DIR/node_modules/npm/cli.js"
+    elif [ $OS == $OS_CYGWIN ] && [ $ARCH == $ARCH_64 ]; then
+      local NODE_DOWNLOAD_PATH="/dist/v${NODE_VERSION}/x64/node.exe"
+      readonly NODE_BIN=$NODE_DIR/node.exe
+      readonly NPM_BIN="$NODE_BIN $NODE_DIR/node_modules/npm/cli.js"
+    fi
+
+    if [[ ! -e $NODE_DIR ]]; then
+      local NODE_HOST="nodejs.org"
+
+      $(mkdir -p $NODE_DIR)
+
+      if [ $OS == $OS_CYGWIN ]; then
+        echo "Downloading Node $NODE_VERSION for $ARCH $OS"
+        $(curl -s -o $NODE_BIN https://$NODE_HOST$NODE_DOWNLOAD_PATH)
+
+        echo "Downloading npm $DEFAULT_NPM_VERSION for $ARCH $OS"
+        $(curl -s -o $NODE_DIR/npm.tgz http://$NODE_HOST/dist/npm/npm-$DEFAULT_NPM_VERSION.tgz)
+        $(mkdir -p $NODE_DIR/node_modules)
+        $(tar -z -x -f $NODE_DIR/npm.tgz -C $NODE_DIR/node_modules)
+        $(rm $NODE_DIR/npm.tgz)
+      else
+        echo "Downloading Node $NODE_VERSION for $ARCH $OS"
+        $(curl -s -o $NODE_DIR/node.zip https://$NODE_HOST$NODE_DOWNLOAD_PATH)
+        $(tar -z -x -f $NODE_DIR/node.zip -C $NODE_DIR)
+        $(rm $NODE_DIR/node.zip)
+      fi
+    fi
+  fi
+}
+
+
+# Downloads Gulp
+#
+# Requires:
+#  JQ_BIN
+#  NPM_BIN
+#
+# Sets:
+#  GULP_BIN
+#
+download_gulp() {
+
+  if [ "$GULP_BIN" == "" ]; then
+    download_jq
+
+    local GULP_RAW_VERSION=$($JQ_BIN -r '.devDependencies.gulp' package.json)
+
+    download_node
+
+    $NPM_BIN config set spin=false
+
+    if [ "$GULP_RAW_VERSION" == "null" ]; then
+      echo "No Gulp dependency was found in your package.json file"
+      read -t 10 -p "Should the latest be used? [yes] " USE_LATEST
+      if [ "$USE_LATEST" == "yes" ] || [ "$USE_LATEST" == "" ]; then
+        $NPM_BIN install --save-dev gulp
+      fi
+    else
+      $NPM_BIN install
+    fi
+
+    readonly GULP_BIN=node_modules/gulp/bin/gulp.js
+
+    if [ ! -e $GULP_BIN ]; then
+      echo "Gulp could not be downloaded. Exiting."
+      exit 1
+    fi
+  fi
+}
+
+
+# Runs gulp on the project
+#
+# Requires:
+#  NODE_BIN
+#  GULP_BIN
+#
+function run_gulp() {
+
+  download_node
+  download_gulp
+
+  $NODE_BIN $GULP_BIN $*
+}
+
+
+#
+# Main
+#
+
+if [ ! -e package.json ]; then
+  echo "You need to run gulp in a directory containing a package.json file."
+  read -t 10 -p "Should one be created for you? [yes] " CREATE_PACKAGE_JSON
+  if [ "$CREATE_PACKAGE_JSON" == "yes" ] || [ "$CREATE_PACKAGE_JSON" == "" ]; then
+    cat <<EOF > package.json
+{
+  "name": "YOUR_PROJECT_NAME",
+  "version": "0.0.0",
+  "description": "YOUR PROJECT DESCRIPTION",
+  "devDependencies": {
+    "gulp": "$DEFAULT_GULP_VERSION"
+  },
+  "engines": {
+    "node": "$DEFAULT_NODE_VERSION",
+    "npm": "$DEFAULT_NPM_VERSION"
+  }
+}
+EOF
+    echo
+  else
+    echo "No package.json found. Exiting."
+    exit 1
+
+  fi
+fi
+
+if [ ! -e gulpfile.js ]; then
+  echo "You need to run gulp in a directory containing a gulpfile.js file."
+  read -t 10 -p "Should one be created for you? [yes] " CREATE_GULPFILE
+  if [ "$CREATE_GULPFILE" == "yes" ] || [ "$CREATE_GULPFILE" == "" ]; then
+    cat <<EOF > gulpfile.js
+var gulp = require('gulp');
+
+gulp.task('default', function() {
+  // place code for your default task here
+});
+EOF
+    echo
+  else
+    echo "No gulpfile.js found. Exiting."
+    exit 1
+  fi
+fi
+
+run_gulp $*
